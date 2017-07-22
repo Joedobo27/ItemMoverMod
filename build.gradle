@@ -1,0 +1,51 @@
+
+apply plugin: 'java'
+apply plugin: 'distribution'
+
+group 'com.joedobo27'
+version '1.0'
+sourceCompatibility = 1.8
+
+def WUServerPath = "C:\\Users\\Jason\\Documents\\WU\\WU-Server\\"
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+}
+
+dependencies {
+    testCompile group: 'junit', name: 'junit', version: '4.12'
+    compileOnly files("${WUServerPath}common.jar")
+    compileOnly files("${WUServerPath}server.jar")
+    compileOnly files("${WUServerPath}modlauncher.jar")
+    compileOnly 'org.javassist:javassist:3.20.0-GA'
+}
+
+jar.setArchiveName(project.name + ".jar")
+distZip.doFirst {
+    delete (file("${distZip.destinationDir}/${project.name}-${version}.zip"))
+}
+distZip.dependsOn(jar)
+distZip.mustRunAfter(build)
+
+// The distZip automatically adds a sub-folder with the same name as the zip. In order to directly unpack the
+// archive into WU server folder it needs to have a "mods" folds as its first sub-folder. After much effort I ended up with
+// this weird "hack" approach to get the right directory structure.
+distZip.setArchiveName("mods.zip")
+distZip.doLast {
+    file("${distZip.destinationDir}/mods.zip").renameTo("${distZip.destinationDir}/${project.name}-${version}.zip")
+}
+
+distributions {
+    main {
+        contents {
+            from ('src/main/resources/') {
+                include("*.properties")
+            }
+            from ('build/libs/') {
+                include('*.jar')
+                into ('ItemMoverMod/')
+            }
+        }
+    }
+}
