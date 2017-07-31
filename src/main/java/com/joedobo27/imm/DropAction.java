@@ -13,7 +13,7 @@ import org.gotti.wurmunlimited.modsupport.actions.ActionPerformer;
 import org.gotti.wurmunlimited.modsupport.actions.ModAction;
 import org.gotti.wurmunlimited.modsupport.actions.ModActions;
 
-import static com.joedobo27.imm.Wrap.Actions.*;
+import static com.joedobo27.libs.ActionTypes.*;
 
 public class DropAction implements ModAction, ActionPerformer{
 

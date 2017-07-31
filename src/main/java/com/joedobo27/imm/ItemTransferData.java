@@ -14,9 +14,9 @@ class ItemTransferData {
     private final static long SECONDS_30 = WurmCalendar.SECOND * 30;
     static private HashMap<Long, ItemTransferData> transferDataHashMap = new HashMap<>();
 
-    ItemTransferData(long performerWurmId, Item[] items) {
+    ItemTransferData(long performerWurmId, long timeNow, Item[] items) {
         this.performerWurmId = performerWurmId;
-        this.timeStamp = WurmCalendar.getCurrentTime();
+        this.timeStamp = timeNow;
         this.items = items;
         transferDataHashMap.put(performerWurmId, this);
         if (ItemMoverMod.r.nextInt(99) < 10)
@@ -24,6 +24,8 @@ class ItemTransferData {
     }
 
     static int getDropItemTime(long performerWurmId) {
+        if (performerWurmId == -10L)
+            return 0;
         double cycles = transferDataHashMap.get(performerWurmId).items.length / ItemMoverMod.itemsPerSecond;
         cycles ++;
         cycles *= 10;
@@ -54,7 +56,7 @@ class ItemTransferData {
         return itemTransferData != null && itemTransferData.timeStamp + SECONDS_30 >= WurmCalendar.getCurrentTime();
     }
 
-    static void verifyAndClean(){
+    private static void verifyAndClean(){
         HashMap<Long, ItemTransferData> map = new HashMap<>();
         transferDataHashMap.entrySet()
                 .stream()

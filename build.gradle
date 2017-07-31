@@ -7,6 +7,7 @@ version '1.0'
 sourceCompatibility = 1.8
 
 def WUServerPath = "C:\\Users\\Jason\\Documents\\WU\\WU-Server\\"
+def jdbCommonPath = "C:\\Users\\Jason\\IdeaProjects\\jdbCommon\\build\\libs\\"
 
 repositories {
     mavenCentral()
@@ -14,6 +15,7 @@ repositories {
 }
 
 dependencies {
+    compile files("${jdbCommonPath}jdbCommon-1.0.jar")
     testCompile group: 'junit', name: 'junit', version: '4.12'
     compileOnly files("${WUServerPath}common.jar")
     compileOnly files("${WUServerPath}server.jar")
@@ -39,13 +41,28 @@ distZip.doLast {
 distributions {
     main {
         contents {
-            from ('src/main/resources/') {
+            from('src/main/resources/') {
                 include("*.properties")
             }
             from ('build/libs/') {
-                include('*.jar')
-                into ('ItemMoverMod/')
+                include("${project.name}.jar")
+                into(project.name+"/")
+            }
+            from ('build/libs/'){
+                exclude("${project.name}.jar")
+                include("*.jar")
+                into("${project.name}/libs/")
             }
         }
     }
 }
+
+task dist(type: Copy) {
+    from configurations.runtime {
+        exclude("annotations*")
+    }
+    into "$buildDir/libs"
+}
+build.dependsOn(dist)
+dist.mustRunAfter(jar)
+distZip.dependsOn(dist)

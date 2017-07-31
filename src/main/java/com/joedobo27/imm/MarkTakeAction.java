@@ -1,5 +1,6 @@
 package com.joedobo27.imm;
 
+import com.wurmonline.server.WurmCalendar;
 import com.wurmonline.server.behaviours.Action;
 import com.wurmonline.server.behaviours.ActionEntry;
 import com.wurmonline.server.creatures.Creature;
@@ -14,8 +15,6 @@ import org.gotti.wurmunlimited.modsupport.actions.ModActions;
 import java.util.Collections;
 import java.util.List;
 
-import static com.joedobo27.imm.Wrap.Actions.*;
-
 public class MarkTakeAction implements ModAction, ActionPerformer, BehaviourProvider {
 
     static ActionEntry actionEntry;
@@ -25,7 +24,7 @@ public class MarkTakeAction implements ModAction, ActionPerformer, BehaviourProv
         //actionId = Actions.TAKE;
         //actionEntry = Actions.actionEntrys[Actions.TAKE];
         actionId = (short) ModActions.getNextActionId();
-        actionEntry = ActionEntry.createEntry(actionId, "Mark take", "marking-take", new int[]{ACTION_ENEMY_ALWAYS.getId()});
+        actionEntry = ActionEntry.createEntry(actionId, "Mark-take", "marking-take", new int[]{});
         ModActions.registerAction(actionEntry);
     }
 
@@ -60,17 +59,29 @@ public class MarkTakeAction implements ModAction, ActionPerformer, BehaviourProv
     public boolean action(Action action, Creature performer, Item[] targets, short aActionId, float counter) {
         if (aActionId != actionId)
             return ActionPerformer.super.action(action, performer, targets, aActionId, counter);
-        new ItemTransferData(performer.getWurmId(), targets);
+        new ItemTransferData(performer.getWurmId(), WurmCalendar.getCurrentTime(), targets);
         performer.getCommunicator().sendNormalServerMessage("You mark items for transfer.");
+        //TODO this isn't working at all. Verify if it is even reachable.
         return true;
     }
 
     @Override
     public boolean action(Action action, Creature performer, Item source, Item target, short aActionId, float counter) {
-        if (aActionId != actionId || source.getTemplateId() != ItemList.bodyHand || target.getTemplateId() != ItemList.bulkItem)
+        if (aActionId != actionId || source.getTemplateId() != ItemList.bodyHand || !isValidTakeTarget(target.getTemplateId()))
             return ActionPerformer.super.action(action, performer, source, target, aActionId, counter);
-        new ItemTransferData(performer.getWurmId(), new Item[]{target});
+        new ItemTransferData(performer.getWurmId(), WurmCalendar.getCurrentTime(), new Item[]{target});
         performer.getCommunicator().sendNormalServerMessage("You mark a bulk item for transfer.");
+        //TODO add in logic to make use of a pile-of-items, templateId == 177 (pile).
         return true;
+    }
+
+    private boolean isValidTakeTarget(int itemTemplate) {
+        switch (itemTemplate){
+            case ItemList.bulkItem:
+            case ItemList.itemPile:
+                return true;
+            default:
+                return false;
+        }
     }
 }
