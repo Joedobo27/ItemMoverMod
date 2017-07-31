@@ -27,7 +27,7 @@ public class DropAction implements ModAction, ActionPerformer{
         //actionEntry = Actions.actionEntrys[Actions.DROP];
 
         actionId = (short) ModActions.getNextActionId();
-        actionEntry = ActionEntry.createEntry(actionId, "Empty", "emptying", new int[] {ACTION_ENEMY_ALWAYS.getId()});
+        actionEntry = ActionEntry.createEntry(actionId, "Move items", "moving items", new int[] {ACTION_ENEMY_ALWAYS.getId()});
         ModActions.registerAction(actionEntry);
     }
 
@@ -44,6 +44,7 @@ public class DropAction implements ModAction, ActionPerformer{
 
         String youMessage;
         String broadcastMessage;
+        ItemTransferData itemTransferData;
         //  ACTION SET UP
         if(counter == ACTION_START_TIME && hasAFailureCondition())
             return true;
@@ -52,9 +53,15 @@ public class DropAction implements ModAction, ActionPerformer{
             performer.getCommunicator().sendNormalServerMessage(youMessage);
             broadcastMessage = String.format("%s starts to %s.", performer.getName(), action.getActionString());
             Server.getInstance().broadCastAction(broadcastMessage, performer, 5);
-            int time = ItemTransferData.getDropItemTime(performer.getWurmId());
-            action.setTimeLeft(time);
-            performer.sendActionControl(action.getActionEntry().getVerbString(), true, time);
+            itemTransferData = ItemTransferData.getItemTransferData(performer.getWurmId());
+            if (itemTransferData == null) {
+                performer.getCommunicator().sendNormalServerMessage("Sorry, something went wrong");
+                ItemMoverMod.logger.warning("ItemTransferData instance wasn't found.");
+                return true;
+            }
+            itemTransferData.setTotalTime();
+            action.setTimeLeft(itemTransferData.getTotalTime());
+            performer.sendActionControl(action.getActionEntry().getVerbString(), true, itemTransferData.getTotalTime());
             performer.getStatus().modifyStamina(-1000.0f);
             return false;
         }
@@ -68,12 +75,19 @@ public class DropAction implements ModAction, ActionPerformer{
             ItemTransferData.removeItemDataTransfer(performer.getWurmId());
             return true;
         }
+        itemTransferData = ItemTransferData.getItemTransferData(performer.getWurmId());
+        if (itemTransferData == null) {
+            performer.getCommunicator().sendNormalServerMessage("Sorry, something went wrong");
+            ItemMoverMod.logger.warning("ItemTransferData instance wasn't found.");
+            return true;
+        }
         // ACTION IN PROCESS
-        if (!action.justTickedSecond())
+        if (!itemTransferData.unitTimeJustTicked(counter))
             return false;
         if (hasAFailureCondition())
             return true;
-        Item combinedItem = ItemTransferData.combineItems(performer.getWurmId());
+        Item combinedItem = itemTransferData.combineItems();
+        //TODO add itemTransferData.combineItems() method to ItemTransferData. Figure out if the function of bulkoptionsMod can be rolled into this.
         if (combinedItem == null)
             return false;
         if (combinedItem.getTemplateId() != ItemList.bulkItem) {
@@ -82,7 +96,7 @@ public class DropAction implements ModAction, ActionPerformer{
             } catch (Exception ignored) {}
             return false;
         }
-        Item item = null;
+        Item item;
         try {
             item = ItemFactory.createItem(combinedItem.getRealTemplateId(), combinedItem.getQualityLevel(), combinedItem.getMaterial(),
                     combinedItem.getRarity(), null);

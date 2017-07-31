@@ -9,16 +9,20 @@ import org.gotti.wurmunlimited.modsupport.actions.ModActions;
 
 import java.util.Properties;
 import java.util.Random;
+import java.util.logging.Logger;
 
 
 public class ItemMoverMod implements WurmServerMod, PreInitable, ServerStartedListener, Configurable{
 
     static final Random r = new Random();
-    static int itemsPerSecond;
+    static int itemsPerTimeUnit;
+    static int unitMoveTimeInterval;
+    static final Logger logger = Logger.getLogger(ItemMoverMod.class.getName());
 
     @Override
     public void configure(Properties properties) {
-        itemsPerSecond = Integer.parseInt(properties.getProperty("itemsPerSecond", Integer.toString(itemsPerSecond)));
+        itemsPerTimeUnit = Integer.parseInt(properties.getProperty("itemsPerTimeUnit", Integer.toString(itemsPerTimeUnit)));
+        unitMoveTimeInterval = Integer.parseInt(properties.getProperty("unitMoveTimeInterval", Integer.toString(unitMoveTimeInterval)));
     }
 
     @Override
