@@ -10,29 +10,26 @@ import com.wurmonline.server.players.Player;
 import org.gotti.wurmunlimited.modsupport.actions.ActionPerformer;
 import org.gotti.wurmunlimited.modsupport.actions.BehaviourProvider;
 import org.gotti.wurmunlimited.modsupport.actions.ModAction;
-import org.gotti.wurmunlimited.modsupport.actions.ModActions;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
-
-import static com.joedobo27.imm.ItemMoverMod.unitMoveTimeInterval;
 
 public class MarkTakeAction implements ModAction, ActionPerformer, BehaviourProvider {
 
-    static ActionEntry actionEntry;
-    static private short actionId;
+    private final ActionEntry actionEntry;
+    private final short actionId;
 
-    MarkTakeAction() {
+    MarkTakeAction(short actionId, ActionEntry actionEntry) {
         //actionId = Actions.TAKE;
         //actionEntry = Actions.actionEntrys[Actions.TAKE];
-        actionId = (short) ModActions.getNextActionId();
-        actionEntry = ActionEntry.createEntry(actionId, "Mark-take", "marking-take", new int[]{});
-        ModActions.registerAction(actionEntry);
+        this.actionId = actionId;
+        this.actionEntry = actionEntry;
     }
 
     @Override
     public short getActionId() {
-        return actionId;
+        return this.actionId;
     }
 
     @Override
@@ -44,11 +41,7 @@ public class MarkTakeAction implements ModAction, ActionPerformer, BehaviourProv
     public List<ActionEntry> getBehavioursFor(Creature performer, Item source, Item target) {
         if (!(performer instanceof Player)|| source.getTemplateId() != ItemList.bodyHand || !isValidTakeTarget(target.getTemplateId()))
             return BehaviourProvider.super.getBehavioursFor(performer, source, target);
-        if (ItemTransferData.transferIsInProcess(performer.getWurmId()) &&
-                target != null && (target.isBulkContainer() || target.isCrate())){
-            return Collections.singletonList(DropAction.actionEntry);
-        }
-        return Collections.singletonList(actionEntry);
+        return Collections.singletonList(this.actionEntry);
     }
 
 
@@ -59,9 +52,12 @@ public class MarkTakeAction implements ModAction, ActionPerformer, BehaviourProv
 
     @Override
     public boolean action(Action action, Creature performer, Item[] targets, short aActionId, float counter) {
-        if (aActionId != actionId)
+        if (aActionId != this.actionId)
             return ActionPerformer.super.action(action, performer, targets, aActionId, counter);
-        new ItemTransferData(performer.getWurmId(), WurmCalendar.getCurrentTime(), targets, unitMoveTimeInterval);
+        HashMap<Integer, Item[]> integerHashMap = ItemTransferData.groupItems(targets);
+        int totalTime = ItemTransferData.getTotalCycles(integerHashMap) * ItemMoverMod.getUnitMoveTimeInterval();
+        new ItemTransferData(performer.getWurmId(), WurmCalendar.getCurrentTime(), integerHashMap,
+                ItemMoverMod.getUnitMoveTimeInterval(), totalTime, targets[0].getTemplateId());
         performer.getCommunicator().sendNormalServerMessage("You mark items for transfer.");
         //TODO this isn't working at all. Verify if it is even reachable.
         return true;
@@ -69,12 +65,22 @@ public class MarkTakeAction implements ModAction, ActionPerformer, BehaviourProv
 
     @Override
     public boolean action(Action action, Creature performer, Item source, Item target, short aActionId, float counter) {
-        if (aActionId != actionId || source.getTemplateId() != ItemList.bodyHand || !isValidTakeTarget(target.getTemplateId()))
+        if (aActionId != this.actionId || source.getTemplateId() != ItemList.bodyHand || !isValidTakeTarget(target.getTemplateId()))
             return ActionPerformer.super.action(action, performer, source, target, aActionId, counter);
-        if (target.getTemplateId() == ItemList.itemPile)
-            new ItemTransferData(performer.getWurmId(), WurmCalendar.getCurrentTime(), target.getItemsAsArray(), unitMoveTimeInterval);
-        else
-            new ItemTransferData(performer.getWurmId(), WurmCalendar.getCurrentTime(), new Item[]{target}, unitMoveTimeInterval);
+        if (target.getTemplateId() == ItemList.itemPile) {
+            HashMap<Integer, Item[]> integerHashMap = ItemTransferData.groupItems(target.getItemsAsArray());
+            int totalTime = ItemTransferData.getTotalCycles(integerHashMap) * ItemMoverMod.getUnitMoveTimeInterval();
+            new ItemTransferData(performer.getWurmId(), WurmCalendar.getCurrentTime(), integerHashMap,
+                    ItemMoverMod.getUnitMoveTimeInterval(), totalTime, target.getTemplateId());
+        }
+        else {
+            HashMap<Integer, Item[]> integerHashMap = ItemTransferData.groupItems(new Item[]{target});
+            int totalTime = ItemTransferData.getTotalCycles(integerHashMap) * ItemMoverMod.getUnitMoveTimeInterval();
+            new ItemTransferData(performer.getWurmId(), WurmCalendar.getCurrentTime(), integerHashMap,
+                    ItemMoverMod.getUnitMoveTimeInterval(), totalTime, target.getTemplateId());
+            if (ItemMoverMod.r.nextInt(99) < 10)
+                ItemTransferData.verifyAndClean();
+        }
         performer.getCommunicator().sendNormalServerMessage("You mark a bulk item for transfer.");
         //TODO add in logic to make use of a pile-of-items, templateId == 177 (pile).
         return true;

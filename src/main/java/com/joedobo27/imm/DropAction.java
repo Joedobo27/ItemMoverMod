@@ -4,49 +4,81 @@ import com.wurmonline.server.*;
 import com.wurmonline.server.behaviours.Action;
 import com.wurmonline.server.behaviours.ActionEntry;
 import com.wurmonline.server.creatures.Creature;
-import com.wurmonline.server.creatures.NoSuchCreatureException;
 import com.wurmonline.server.items.Item;
 import com.wurmonline.server.items.ItemFactory;
 import com.wurmonline.server.items.ItemList;
 import com.wurmonline.server.items.NoSuchTemplateException;
+import com.wurmonline.server.players.Player;
 import org.gotti.wurmunlimited.modsupport.actions.ActionPerformer;
+import org.gotti.wurmunlimited.modsupport.actions.BehaviourProvider;
 import org.gotti.wurmunlimited.modsupport.actions.ModAction;
-import org.gotti.wurmunlimited.modsupport.actions.ModActions;
 
-import static com.joedobo27.libs.ActionTypes.*;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 
-public class DropAction implements ModAction, ActionPerformer{
+public class DropAction implements ModAction, ActionPerformer, BehaviourProvider {
 
-    static ActionEntry actionEntry;
-    private static short actionId;
-    private final static float ACTION_START_TIME = 1.0f;
-    private final static float TIME_TO_COUNTER_DIVISOR = 10.0f;
+    private final ActionEntry actionEntry;
+    private final short actionId;
 
-    DropAction(){
+    DropAction(short actionId, ActionEntry actionEntry){
         //actionId = Actions.DROP;
         //actionEntry = Actions.actionEntrys[Actions.DROP];
-
-        actionId = (short) ModActions.getNextActionId();
-        actionEntry = ActionEntry.createEntry(actionId, "Move items", "moving items", new int[] {ACTION_ENEMY_ALWAYS.getId()});
-        ModActions.registerAction(actionEntry);
+        this.actionId = actionId;
+        this.actionEntry = actionEntry;
     }
 
     @Override
     public short getActionId() {
-        return actionId;
+        return this.actionId;
+    }
+
+    // DROP ON TILE
+    @Override
+    public List<ActionEntry> getBehavioursFor(Creature performer, int tileX, int tileY, boolean onSurface, int encodedTile) {
+        return getBehavioursFor(performer, null, tileX, tileY, onSurface, encodedTile);
     }
 
     @Override
-    public boolean action(Action action, Creature performer, Item barrel, Item bulkContainer, short aActionId, float counter) {
+    public List<ActionEntry> getBehavioursFor(Creature performer, Item source, int tileX, int tileY, boolean onSurface, int encodedTile){
+        if (!(performer instanceof Player) || !isValidDropTarget(tileX, tileY, encodedTile) || !ItemTransferData.transferIsInProcess(performer.getWurmId()))
+                return null;
+        return Collections.singletonList(actionEntry);
+    }
+
+    // DROP ON BULK
+    @Override
+    public List<ActionEntry> getBehavioursFor(final Creature performer, final Item target) {
+        return getBehavioursFor(performer, null, target);
+    }
+
+    @Override
+    public List<ActionEntry> getBehavioursFor(final Creature performer, final Item source, final Item target) {
+        if (!(performer instanceof Player) || !(target.isBulkContainer()) || !ItemTransferData.transferIsInProcess(performer.getWurmId()))
+            return null;
+        return Collections.singletonList(this.actionEntry);
+    }
+
+    @Override
+    public boolean action(final Action act, final Creature performer, final Item target, final short action, final float counter) {
+        return action(act, performer, null, target, action, counter);
+    }
+
+    @Override
+    public boolean action(Action action, Creature performer, Item source, Item target, short aActionId, float counter) {
         // ACTION, SHOULD IT BE DONE
-        if (aActionId != actionId || bulkContainer == null || (!bulkContainer.isBulkContainer() && !bulkContainer.isCrate()))
-            return ActionPerformer.super.action(action, performer, barrel, bulkContainer, aActionId, counter);
+        if (aActionId != this.actionId || target == null || (!target.isBulkContainer() && !target.isCrate()))
+            return ActionPerformer.super.action(action, performer, source, target, aActionId, counter);
 
         String youMessage;
         String broadcastMessage;
-        ItemTransferData itemTransferData;
+        ItemTransferData itemTransferData = ItemTransferData.getItemTransferData(performer.getWurmId());
+        final float ACTION_START_TIME = 1.0f;
+        final float TIME_TO_COUNTER_DIVISOR = 10.0f;
         //  ACTION SET UP
-        if(counter == ACTION_START_TIME && hasAFailureCondition())
+        if(counter == ACTION_START_TIME && hasAFailureCondition(itemTransferData, target))
             return true;
         if (counter == ACTION_START_TIME) {
             youMessage = String.format("You start %s.", action.getActionString());
@@ -59,7 +91,6 @@ public class DropAction implements ModAction, ActionPerformer{
                 ItemMoverMod.logger.warning("ItemTransferData instance wasn't found.");
                 return true;
             }
-            itemTransferData.setTotalTime();
             action.setTimeLeft(itemTransferData.getTotalTime());
             performer.sendActionControl(action.getActionEntry().getVerbString(), true, itemTransferData.getTotalTime());
             performer.getStatus().modifyStamina(-1000.0f);
@@ -84,15 +115,14 @@ public class DropAction implements ModAction, ActionPerformer{
         // ACTION IN PROCESS
         if (!itemTransferData.unitTimeJustTicked(counter))
             return false;
-        if (hasAFailureCondition())
+        if (hasAFailureCondition(itemTransferData, target))
             return true;
-        Item combinedItem = itemTransferData.combineItems();
-        //TODO add itemTransferData.combineItems() method to ItemTransferData. Figure out if the function of bulkoptionsMod can be rolled into this.
+        Item combinedItem = itemTransferData.combineItems(target);
         if (combinedItem == null)
             return false;
         if (combinedItem.getTemplateId() != ItemList.bulkItem) {
             try {
-                combinedItem.moveToItem(performer, bulkContainer.getWurmId(), true);
+                combinedItem.moveToItem(performer, target.getWurmId(), true);
             } catch (Exception ignored) {}
             return false;
         }
@@ -106,18 +136,19 @@ public class DropAction implements ModAction, ActionPerformer{
         }
         int combinedCount = Integer.parseInt(combinedItem.getDescription().replaceAll("x",""));
         item.setWeight(combinedCount * item.getTemplate().getWeightGrams(), false);
-        try {
-            item.moveToItem(performer, bulkContainer.getWurmId(), true);
-        } catch (NoSuchItemException | NoSuchPlayerException | NoSuchCreatureException e) {
-            Items.destroyItem(item.getWurmId());
-            performer.getCommunicator().sendNormalServerMessage("Sorry, something went wrong.");
-            return true;
-        }
+        if (target.getTemplateId() == ItemList.bulkContainer || target.getTemplateId() == ItemList.hopper)
+            item.AddBulkItem(performer, target);
+        if (target.isCrate())
+            item.AddBulkItemToCrate(performer, target);
         Items.destroyItem(combinedItem.getWurmId());
         return false;
     }
 
-    private boolean hasAFailureCondition() {
+    private boolean hasAFailureCondition(ItemTransferData itemTransferData, Item target) {
         return false;
+    }
+
+    private boolean isValidDropTarget(int tileX, int tileY, int encodedTile) {
+        return true;
     }
 }
