@@ -1,13 +1,9 @@
 package com.joedobo27.imm;
 
 
-import com.wurmonline.server.FailedException;
-import com.wurmonline.server.Items;
 import com.wurmonline.server.WurmCalendar;
 import com.wurmonline.server.items.Item;
-import com.wurmonline.server.items.ItemFactory;
 import com.wurmonline.server.items.ItemList;
-import com.wurmonline.server.items.NoSuchTemplateException;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Arrays;
@@ -92,91 +88,12 @@ class ItemTransferData {
         return false;
     }
 
-    Item combineItems(Item targetItems) {
-        Item toReturn = null;
-        if (this.takeTemplateId == ItemList.bulkItem)
-            toReturn = moveFromBulk(targetItems);
-        else
-            toReturn = moveFromPile(targetItems);
-        return toReturn;
+    boolean isMoveFromBulk() {
+        return this.takeTemplateId == ItemList.bulkItem;
     }
 
-    private Item moveFromBulk(Item targetBulk) {
-        if (this.items == null || this.items.size() == 0)
-            return null;
-        Integer[] integerKeys = this.items.keySet().toArray(new Integer[this.items.size()]);
-        if (integerKeys.length == 0 || integerKeys == null)
-            return null;
-        Item itemBulk = this.items.get(integerKeys[0])[0];
-        int containerSpace;
-        if (targetBulk.isCrate()){
-            containerSpace = targetBulk.getRemainingCrateSpace();
-        } else {
-            containerSpace = targetBulk.getFreeVolume() / itemBulk.getRealTemplate().getVolume();
-        }
-        Item itemReturn;
-        try{
-            itemReturn = ItemFactory.createItem(itemBulk.getRealTemplateId(), itemBulk.getQualityLevel(), itemBulk.getMaterial(),
-                itemBulk.getRarity(), null);
-        } catch (NoSuchTemplateException | FailedException e) {
-            ItemMoverMod.logger.warning(e.getMessage());
-            return null;
-        }
-        int moveCount = Math.min(containerSpace, itemBulk.getBulkNums());
-        if (moveCount == 0)
-            return null;
-        itemReturn.setWeight(itemReturn.getWeightGrams() * moveCount, false);
-        itemBulk.setWeight(itemBulk.getWeightGrams() - (itemBulk.getRealTemplate().getVolume() * moveCount), false);
-        if (itemBulk.getWeightGrams() <= 0) {
-            Items.destroyItem(itemBulk.getWurmId());
-            this.items.remove(integerKeys[0]);
-            targetBulk.updateIfGroundItem();
-        }
-        if (targetBulk.isCrate() && moveCount == targetBulk.getRemainingCrateSpace()){
-            this.items.remove(integerKeys[0]);
-        }
-
-        return itemReturn;
-    }
-
-    private Item moveFromPile(Item targetBulk) {
-        if (this.items == null || this.items.size() == 0)
-            return null;
-        Integer[] integerKeys = this.items.keySet().toArray(new Integer[this.items.size()]);
-        if (integerKeys.length == 0 || integerKeys == null)
-            return null;
-        Item toReturn = this.items.get(integerKeys[0])[0];
-        int containerSpace;
-        if (targetBulk.isCrate()){
-            containerSpace = targetBulk.getRemainingCrateSpace();
-        } else {
-            containerSpace = targetBulk.getFreeVolume() / toReturn.getTemplate().getVolume();
-        }
-        if (this.items.get(integerKeys[0]).length == 1 && integerKeys.length == 1) {
-
-            return toReturn;
-        }
-        int moveCount = Math.min(ItemMoverMod.getItemsPerTimeUnit(), this.items.get(integerKeys[0]).length);
-        moveCount = Math.min(moveCount, containerSpace);
-        if (moveCount > 1) {
-            IntStream.range(1, moveCount)
-                    .forEach(value -> toReturn.setWeight(toReturn.getWeightGrams() + items.get(integerKeys[0])[value].getWeightGrams(), false));
-            IntStream.range(1, moveCount)
-                    .forEach(value -> Items.destroyItem(items.get(integerKeys[0])[value].getWurmId()));
-            if (this.items.get(integerKeys[0]).length - moveCount <= 0){
-                transferDataHashMap.get(this.performerWurmId).items.remove(integerKeys[0]);
-                return toReturn;
-            }
-            Item[] items2 = new Item[this.items.get(integerKeys[0]).length - moveCount];
-            System.arraycopy(this.items.get(integerKeys[0]), moveCount, items2, 0, this.items.get(integerKeys[0]).length - moveCount);
-            transferDataHashMap.get(this.performerWurmId).items.put(integerKeys[0], items2);
-        }
-        if (moveCount <= 1) {
-            transferDataHashMap.get(this.performerWurmId).items.remove(integerKeys[0]);
-        }
-        targetBulk.updateModelNameOnGroundItem();
-        return toReturn;
-
+    boolean isMoveFromPile() {
+        return this.takeTemplateId == ItemList.itemPile;
     }
 
     static boolean transferIsInProcess(long performerWurmId) {
@@ -234,7 +151,7 @@ class ItemTransferData {
         return transferDataHashMap.getOrDefault(performerWurmId, null);
     }
 
-    public HashMap<Integer, Item[]> getItems() {
+    HashMap<Integer, Item[]> getItems() {
         return items;
     }
 }

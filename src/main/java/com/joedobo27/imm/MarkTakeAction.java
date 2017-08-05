@@ -21,8 +21,6 @@ public class MarkTakeAction implements ModAction, ActionPerformer, BehaviourProv
     private final short actionId;
 
     MarkTakeAction(short actionId, ActionEntry actionEntry) {
-        //actionId = Actions.TAKE;
-        //actionEntry = Actions.actionEntrys[Actions.TAKE];
         this.actionId = actionId;
         this.actionEntry = actionEntry;
     }
@@ -33,21 +31,10 @@ public class MarkTakeAction implements ModAction, ActionPerformer, BehaviourProv
     }
 
     @Override
-    public List<ActionEntry> getBehavioursFor(Creature performer, Item target) {
-        return BehaviourProvider.super.getBehavioursFor(performer, target);
-    }
-
-    @Override
     public List<ActionEntry> getBehavioursFor(Creature performer, Item source, Item target) {
         if (!(performer instanceof Player)|| source.getTemplateId() != ItemList.bodyHand || !isValidTakeTarget(target.getTemplateId()))
             return BehaviourProvider.super.getBehavioursFor(performer, source, target);
         return Collections.singletonList(this.actionEntry);
-    }
-
-
-    @Override
-    public boolean action(Action action, Creature performer, Item target, short aActionId, float counter) {
-        return ActionPerformer.super.action(action, performer, target, aActionId, counter);
     }
 
     @Override
@@ -68,9 +55,9 @@ public class MarkTakeAction implements ModAction, ActionPerformer, BehaviourProv
         if (aActionId != this.actionId || source.getTemplateId() != ItemList.bodyHand || !isValidTakeTarget(target.getTemplateId()))
             return ActionPerformer.super.action(action, performer, source, target, aActionId, counter);
         if (target.getTemplateId() == ItemList.itemPile) {
-            HashMap<Integer, Item[]> integerHashMap = ItemTransferData.groupItems(target.getItemsAsArray());
-            int totalTime = ItemTransferData.getTotalCycles(integerHashMap) * ItemMoverMod.getUnitMoveTimeInterval();
-            new ItemTransferData(performer.getWurmId(), WurmCalendar.getCurrentTime(), integerHashMap,
+            HashMap<Integer, Item[]> ItemGroupsHashMap = ItemTransferData.groupItems(target.getItemsAsArray());
+            int totalTime = ItemTransferData.getTotalCycles(ItemGroupsHashMap) * ItemMoverMod.getUnitMoveTimeInterval();
+            new ItemTransferData(performer.getWurmId(), WurmCalendar.getCurrentTime(), ItemGroupsHashMap,
                     ItemMoverMod.getUnitMoveTimeInterval(), totalTime, target.getTemplateId());
         }
         else {
@@ -82,7 +69,6 @@ public class MarkTakeAction implements ModAction, ActionPerformer, BehaviourProv
                 ItemTransferData.verifyAndClean();
         }
         performer.getCommunicator().sendNormalServerMessage("You mark a bulk item for transfer.");
-        //TODO add in logic to make use of a pile-of-items, templateId == 177 (pile).
         return true;
     }
 

@@ -4,9 +4,9 @@ import com.wurmonline.server.*;
 import com.wurmonline.server.behaviours.Action;
 import com.wurmonline.server.behaviours.ActionEntry;
 import com.wurmonline.server.creatures.Creature;
+import com.wurmonline.server.creatures.NoSuchCreatureException;
 import com.wurmonline.server.items.Item;
 import com.wurmonline.server.items.ItemFactory;
-import com.wurmonline.server.items.ItemList;
 import com.wurmonline.server.items.NoSuchTemplateException;
 import com.wurmonline.server.players.Player;
 import org.gotti.wurmunlimited.modsupport.actions.ActionPerformer;
@@ -14,9 +14,8 @@ import org.gotti.wurmunlimited.modsupport.actions.BehaviourProvider;
 import org.gotti.wurmunlimited.modsupport.actions.ModAction;
 
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
+import java.util.stream.IntStream;
 
 public class DropAction implements ModAction, ActionPerformer, BehaviourProvider {
 
@@ -33,19 +32,6 @@ public class DropAction implements ModAction, ActionPerformer, BehaviourProvider
     @Override
     public short getActionId() {
         return this.actionId;
-    }
-
-    // DROP ON TILE
-    @Override
-    public List<ActionEntry> getBehavioursFor(Creature performer, int tileX, int tileY, boolean onSurface, int encodedTile) {
-        return getBehavioursFor(performer, null, tileX, tileY, onSurface, encodedTile);
-    }
-
-    @Override
-    public List<ActionEntry> getBehavioursFor(Creature performer, Item source, int tileX, int tileY, boolean onSurface, int encodedTile){
-        if (!(performer instanceof Player) || !isValidDropTarget(tileX, tileY, encodedTile) || !ItemTransferData.transferIsInProcess(performer.getWurmId()))
-                return null;
-        return Collections.singletonList(actionEntry);
     }
 
     // DROP ON BULK
@@ -67,18 +53,18 @@ public class DropAction implements ModAction, ActionPerformer, BehaviourProvider
     }
 
     @Override
-    public boolean action(Action action, Creature performer, Item source, Item target, short aActionId, float counter) {
+    public boolean action(Action action, Creature performer, Item source, Item bulkContainer, short aActionId, float counter) {
         // ACTION, SHOULD IT BE DONE
-        if (aActionId != this.actionId || target == null || (!target.isBulkContainer() && !target.isCrate()))
-            return ActionPerformer.super.action(action, performer, source, target, aActionId, counter);
+        if (aActionId != this.actionId || bulkContainer == null || (!bulkContainer.isBulkContainer() && !bulkContainer.isCrate()))
+            return ActionPerformer.super.action(action, performer, source, bulkContainer, aActionId, counter);
 
         String youMessage;
         String broadcastMessage;
-        ItemTransferData itemTransferData = ItemTransferData.getItemTransferData(performer.getWurmId());
+        ItemTransferData itemTransferData;
         final float ACTION_START_TIME = 1.0f;
         final float TIME_TO_COUNTER_DIVISOR = 10.0f;
         //  ACTION SET UP
-        if(counter == ACTION_START_TIME && hasAFailureCondition(itemTransferData, target))
+        if(counter == ACTION_START_TIME && hasAFailureCondition())
             return true;
         if (counter == ACTION_START_TIME) {
             youMessage = String.format("You start %s.", action.getActionString());
@@ -115,40 +101,154 @@ public class DropAction implements ModAction, ActionPerformer, BehaviourProvider
         // ACTION IN PROCESS
         if (!itemTransferData.unitTimeJustTicked(counter))
             return false;
-        if (hasAFailureCondition(itemTransferData, target))
+        if (hasAFailureCondition())
             return true;
-        Item combinedItem = itemTransferData.combineItems(target);
-        if (combinedItem == null)
-            return false;
-        if (combinedItem.getTemplateId() != ItemList.bulkItem) {
-            try {
-                combinedItem.moveToItem(performer, target.getWurmId(), true);
-            } catch (Exception ignored) {}
+        if (itemTransferData.isMoveFromBulk()) {
+            moveFromBulk(bulkContainer, itemTransferData, performer);
+            // Bulk moves consists of a single move action.
+            youMessage = String.format("You finish %s.", action.getActionString());
+            performer.getCommunicator().sendNormalServerMessage(youMessage);
+            broadcastMessage = String.format("%s finishes %s.", performer.getName(), action.getActionString());
+            Server.getInstance().broadCastAction(broadcastMessage, performer, 5);
+            ItemTransferData.removeItemDataTransfer(performer.getWurmId());
+            return true;
+        }
+        if (itemTransferData.isMoveFromPile()) {
+            moveFromPile(bulkContainer, itemTransferData, performer);
+            // Moves from piles consists of multiple move actions.
             return false;
         }
-        Item item;
+        //noinspection ConstantConditions
+        return itemTransferData.isMoveFromBulk() || isTimedOut;
+    }
+
+    private void moveFromPile(Item bulkContainer, ItemTransferData itemTransferData, Creature performer) {
+        // Verify item-HashMap existence.
+        if (itemTransferData.getItems() == null || itemTransferData.getItems().size() == 0)
+            return;
+        Integer[] integerKeys = itemTransferData.getItems().keySet().toArray(new Integer[itemTransferData.getItems().size()]);
+        Item[] itemsCurrentGroup = itemTransferData.getItems().get(integerKeys[0]);
+        if (itemsCurrentGroup == null || itemsCurrentGroup.length == 0)
+            return;
+        Item firstItem = itemsCurrentGroup[0];
+        if (firstItem == null)
+            return;
+
+        // Tally move count and verify available bulk container available space.
+        int containerSpace;
+        if (bulkContainer.isCrate()){
+            containerSpace = bulkContainer.getRemainingCrateSpace();
+        } else {
+            containerSpace = bulkContainer.getFreeVolume() / firstItem.getTemplate().getVolume();
+        }
+        int moveCount = Math.min(containerSpace, itemsCurrentGroup.length);
+        moveCount = Math.min(moveCount, ItemMoverMod.getItemsPerTimeUnit());
+        if (moveCount == 0)
+            return;
+
+        //  Scale grams of insert item and try to insert it.
+        int originalGrams = firstItem.getWeightGrams();
+        int summedGrams = firstItem.getWeightGrams();
+        if (moveCount > 1) {
+            summedGrams = IntStream.range(0, moveCount)
+                    .map(value -> itemsCurrentGroup[value].getWeightGrams())
+                    .sum();
+        }
+        firstItem.setWeight(summedGrams, false);
+        if (!bulkContainer.testInsertItem(firstItem)) {
+            ItemMoverMod.logger.warning("problem inserting");
+            performer.getCommunicator().sendNormalServerMessage("Sorry, something went wrong");
+            firstItem.setWeight(originalGrams, false);
+            return;
+        }
         try {
-            item = ItemFactory.createItem(combinedItem.getRealTemplateId(), combinedItem.getQualityLevel(), combinedItem.getMaterial(),
-                    combinedItem.getRarity(), null);
-        }catch (NoSuchTemplateException | FailedException e){
-            performer.getCommunicator().sendNormalServerMessage("Sorry, something went wrong.");
-            return true;
+            firstItem.moveToItem(performer, bulkContainer.getWurmId(), true);
+        } catch (NoSuchItemException |  NoSuchPlayerException | NoSuchCreatureException e) {
+            ItemMoverMod.logger.warning(e.getMessage());
+            performer.getCommunicator().sendNormalServerMessage("Sorry, something went wrong");
+            firstItem.setWeight(originalGrams, false);
+            return;
         }
-        int combinedCount = Integer.parseInt(combinedItem.getDescription().replaceAll("x",""));
-        item.setWeight(combinedCount * item.getTemplate().getWeightGrams(), false);
-        if (target.getTemplateId() == ItemList.bulkContainer || target.getTemplateId() == ItemList.hopper)
-            item.AddBulkItem(performer, target);
-        if (target.isCrate())
-            item.AddBulkItemToCrate(performer, target);
-        Items.destroyItem(combinedItem.getWurmId());
-        return false;
+
+        // Delete combined items and update item-HashMap
+        if (moveCount > 1) {
+            IntStream.range(1, moveCount)
+                    .forEach(value -> Items.destroyItem(itemsCurrentGroup[value].getWurmId()));
+            if (itemsCurrentGroup.length - moveCount <= 0){
+                itemTransferData.getItems().remove(integerKeys[0]);
+                return ;
+            }
+            Item[] items2 = new Item[itemsCurrentGroup.length - moveCount];
+            System.arraycopy(itemTransferData.getItems().get(integerKeys[0]), moveCount, items2, 0,
+                    itemTransferData.getItems().get(integerKeys[0]).length - moveCount);
+            itemTransferData.getItems().put(integerKeys[0], items2);
+        }
+        if (moveCount <= 1) {
+            itemTransferData.getItems().remove(integerKeys[0]);
+        }
     }
 
-    private boolean hasAFailureCondition(ItemTransferData itemTransferData, Item target) {
-        return false;
+    private void moveFromBulk(Item bulkContainer, ItemTransferData itemTransferData, Creature performer) {
+        // Verify item-HashMap existence.
+        if (itemTransferData.getItems() == null || itemTransferData.getItems().size() == 0)
+            return;
+        Integer[] integerKeys = itemTransferData.getItems().keySet().toArray(new Integer[itemTransferData.getItems().size()]);
+        Item[] items = itemTransferData.getItems().get(integerKeys[0]);
+        if (items == null || items.length == 0)
+            return;
+        Item itemBulk = items[0];
+        if (itemBulk == null)
+            return;
+
+        // Tally move count and verify available bulk container available space.
+        int containerSpace;
+        if (bulkContainer.isCrate()){
+            containerSpace = bulkContainer.getRemainingCrateSpace();
+        } else {
+            containerSpace = bulkContainer.getFreeVolume() / itemBulk.getRealTemplate().getVolume();
+        }
+        int moveCount = Math.min(containerSpace, itemBulk.getBulkNums());
+        if (moveCount == 0)
+            return;
+
+        // create insert item and try to insert it.
+        Item itemInsert;
+        try{
+            itemInsert = ItemFactory.createItem(itemBulk.getRealTemplateId(), itemBulk.getQualityLevel(), itemBulk.getMaterial(),
+                    itemBulk.getRarity(), null);
+        } catch (NoSuchTemplateException | FailedException e) {
+            ItemMoverMod.logger.warning(e.getMessage());
+            return;
+        }
+        itemInsert.setWeight(itemInsert.getWeightGrams() * moveCount, false);
+        if (!bulkContainer.testInsertItem(itemInsert)) {
+            ItemMoverMod.logger.warning("problem inserting");
+            performer.getCommunicator().sendNormalServerMessage("Sorry, something went wrong");
+            Items.destroyItem(itemInsert.getWurmId());
+            return;
+        }
+        try {
+            itemInsert.moveToItem(performer, bulkContainer.getWurmId(), true);
+        } catch (NoSuchItemException |  NoSuchPlayerException | NoSuchCreatureException e) {
+            ItemMoverMod.logger.warning(e.getMessage());
+            performer.getCommunicator().sendNormalServerMessage("Sorry, something went wrong");
+            Items.destroyItem(itemInsert.getWurmId());
+            return;
+        }
+
+        // update quantities take/removed from sources.
+        itemBulk.setWeight(itemBulk.getWeightGrams() - (itemBulk.getRealTemplate().getVolume() * moveCount), false);
+        if (itemBulk.getWeightGrams() <= 0) {
+            Items.destroyItem(itemBulk.getWurmId());
+            itemTransferData.getItems().remove(integerKeys[0]);
+            bulkContainer.updateIfGroundItem();
+        }
+        if (bulkContainer.isCrate() && moveCount == bulkContainer.getRemainingCrateSpace()){
+            itemTransferData.getItems().remove(integerKeys[0]);
+        }
     }
 
-    private boolean isValidDropTarget(int tileX, int tileY, int encodedTile) {
-        return true;
+    private boolean hasAFailureCondition() {
+        return false;
     }
 }
