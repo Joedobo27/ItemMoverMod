@@ -42,6 +42,7 @@ public class ItemMoverMod implements WurmServerMod, PreInitable, ServerStartedLi
 
     @Override
     public void onServerStarted() {
+
         short actionIdTake = (short) ModActions.getNextActionId();
         ActionEntry actionEntryTake = ActionEntry.createEntry(actionIdTake, "Mark-take", "marking-take", new int[]{});
         ModActions.registerAction(actionEntryTake);

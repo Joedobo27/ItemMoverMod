@@ -12,10 +12,6 @@ import java.util.stream.IntStream;
 
 class ItemTransferData {
     /**
-     * Creature.getWurmId() derived value, the player mover.
-     */
-    private final long performerWurmId;
-    /**
      * A list of items to move.
      */
     private HashMap<Integer, Item[]> items;
@@ -34,7 +30,11 @@ class ItemTransferData {
     /**
      * the templateId for the item marked as take. Different take targets need different handling.
      */
-    private final int takeTemplateId;
+    private final Item takeItem;
+    /**
+     * The item container which held the take item.
+     */
+    private final @Nullable Item takeItemParent;
     /**
      * value scale: whole ints, time justTicked comparator.
      */
@@ -49,17 +49,25 @@ class ItemTransferData {
     private final static long SECONDS_30 = WurmCalendar.SECOND * 30;
 
     ItemTransferData(long performerWurmId, long timeNow, HashMap<Integer, Item[]> items, int unitMoveTimeInterval,
-                     int totalTime, int takeTemplateId) {
-        this.performerWurmId = performerWurmId;
+                     int totalTime, Item takeItem, @Nullable Item takeItemParent) {
         this.timeStamp = timeNow;
         this.items = items;
         this.lastWholeUnitTime = 0;
         this.unitMoveTimeInterval = (short)unitMoveTimeInterval;
         this.totalTime = totalTime;
-        this.takeTemplateId = takeTemplateId;
+        this.takeItem = takeItem;
+        this.takeItemParent = takeItemParent;
         transferDataHashMap.put(performerWurmId, this);
     }
 
+    /**
+     * There are mods that divided bulk items into quality groupings (often 10). Since this combines withing this mod
+     * there is this process to make sure things get deposited in groupings. Without mods the default WU will just average
+     * them when deposited.
+     *
+     * @param items list of item to seperate.
+     * @return Items seperated by the quality range value
+     */
     static HashMap<Integer, Item[]> groupItems(final Item[] items) {
         HashMap<Integer, Item[]> toReturn = new HashMap<>();
         IntStream.range(0,(100 / ItemMoverMod.getQualityRange()) + 1)
@@ -76,6 +84,8 @@ class ItemTransferData {
     }
 
     /**
+     * A measurement tool to test if a time interval steps. WU had something like that measurements in 1 second steps.
+     *
      * @param counter Value from WU action() "counter" arg.
      * @return Has counter advanced to the next interval?
      */
@@ -88,14 +98,24 @@ class ItemTransferData {
         return false;
     }
 
+    /**
+     * @return did the take target ordinate from a bulk item.
+     */
     boolean isMoveFromBulk() {
-        return this.takeTemplateId == ItemList.bulkItem;
+        return this.takeItem.getTemplateId() == ItemList.bulkItem;
     }
 
+    /**
+     * @return did the take target orginate from a item pile.
+     */
     boolean isMoveFromPile() {
-        return this.takeTemplateId == ItemList.itemPile;
+        return this.takeItem.getTemplateId() == ItemList.itemPile;
     }
 
+    /**
+     * @param performerWurmId player wurmId is the key to hashmap of ItemTransferData instances.
+     * @return did the take command occur less then 30 second ago?
+     */
     static boolean transferIsInProcess(long performerWurmId) {
         ItemTransferData itemTransferData = transferDataHashMap.getOrDefault(performerWurmId, null);
         return itemTransferData != null && itemTransferData.timeStamp + SECONDS_30 >= WurmCalendar.getCurrentTime();
@@ -127,6 +147,10 @@ class ItemTransferData {
         transferDataHashMap.remove(performerWurmId);
     }
 
+    /**
+     * @param items a quality divistion sorted list of items.
+     * @return total number of cycles needed to move all the items.
+     */
     static int getTotalCycles(HashMap<Integer, Item[]> items) {
         int cycles = items.entrySet()
                 .stream()
@@ -149,6 +173,11 @@ class ItemTransferData {
      */
     static @Nullable ItemTransferData getItemTransferData(long performerWurmId) {
         return transferDataHashMap.getOrDefault(performerWurmId, null);
+    }
+
+    @Nullable
+    Item getTakeItemParent() {
+        return this.takeItemParent;
     }
 
     HashMap<Integer, Item[]> getItems() {

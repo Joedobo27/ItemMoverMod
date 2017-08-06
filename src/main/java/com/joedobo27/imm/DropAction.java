@@ -23,8 +23,6 @@ public class DropAction implements ModAction, ActionPerformer, BehaviourProvider
     private final short actionId;
 
     DropAction(short actionId, ActionEntry actionEntry){
-        //actionId = Actions.DROP;
-        //actionEntry = Actions.actionEntrys[Actions.DROP];
         this.actionId = actionId;
         this.actionEntry = actionEntry;
     }
@@ -237,11 +235,10 @@ public class DropAction implements ModAction, ActionPerformer, BehaviourProvider
         }
 
         // update quantities take/removed from sources.
-        itemBulk.setWeight(itemBulk.getWeightGrams() - (itemBulk.getRealTemplate().getVolume() * moveCount), false);
-        if (itemBulk.getWeightGrams() <= 0) {
-            Items.destroyItem(itemBulk.getWurmId());
-            itemTransferData.getItems().remove(integerKeys[0]);
-            bulkContainer.updateIfGroundItem();
+        itemTransferData.getItems().remove(integerKeys[0]);
+        itemBulk.setWeight(itemBulk.getWeightGrams() - (itemBulk.getRealTemplate().getVolume() * moveCount), true);
+        if ( itemTransferData.getTakeItemParent() != null && itemTransferData.getTakeItemParent().isCrate()) {
+            itemTransferData.getTakeItemParent().updateModelNameOnGroundItem();
         }
         if (bulkContainer.isCrate() && moveCount == bulkContainer.getRemainingCrateSpace()){
             itemTransferData.getItems().remove(integerKeys[0]);
