@@ -153,12 +153,6 @@ public class DropAction implements ModAction, ActionPerformer, BehaviourProvider
                     .sum();
         }
         firstItem.setWeight(summedGrams, false);
-        if (!bulkContainer.testInsertItem(firstItem)) {
-            ItemMoverMod.logger.warning("problem inserting");
-            performer.getCommunicator().sendNormalServerMessage("Sorry, something went wrong");
-            firstItem.setWeight(originalGrams, false);
-            return;
-        }
         try {
             firstItem.moveToItem(performer, bulkContainer.getWurmId(), true);
         } catch (NoSuchItemException |  NoSuchPlayerException | NoSuchCreatureException e) {
@@ -219,12 +213,6 @@ public class DropAction implements ModAction, ActionPerformer, BehaviourProvider
             return;
         }
         itemInsert.setWeight(itemInsert.getWeightGrams() * moveCount, false);
-        if (!bulkContainer.testInsertItem(itemInsert)) {
-            ItemMoverMod.logger.warning("problem inserting");
-            performer.getCommunicator().sendNormalServerMessage("Sorry, something went wrong");
-            Items.destroyItem(itemInsert.getWurmId());
-            return;
-        }
         try {
             itemInsert.moveToItem(performer, bulkContainer.getWurmId(), true);
         } catch (NoSuchItemException |  NoSuchPlayerException | NoSuchCreatureException e) {
